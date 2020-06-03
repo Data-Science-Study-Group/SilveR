@@ -1,8 +1,8 @@
 #R Libraries
-
 suppressWarnings(library(car))
 suppressWarnings(library(R2HTML))
 suppressWarnings(library(ROCR))
+suppressWarnings(library(detectseparation))
 #===================================================================================================================
 # retrieve args
 Args <- commandArgs(TRUE)
@@ -228,6 +228,20 @@ if (treatFactors !="NULL") {
 		HTML("Unfortunately not all combinations of the levels of the treatment factors are present in the experimental design. We recommend you manually create a new factor corresponding to the combinations of the levels of the treatment factors.", align="left")
 		quit()
 	}
+}
+
+#===================================================================================================================
+# Testing for separation
+septest<-glm(model2, data=statdata, family = binomial(link="logit"), na.action = na.omit, method = "detect_separation")
+separation <- "N"
+if (septest[4] == TRUE) {
+	separation = "Y"
+
+
+	HTML.title("Warning", HR=2, align="left")
+	HTML("Unfortunately there is complete seperation in the predictors. Separation occurs in logistic regression when the factors perfectly predict the outcome 
+and may produce infinite estimates for some model coefficients, see Mansournia et al. (2018). Care should be taken when reviewing this analysis as 
+the results in the analysis of deviance table, odds ratios, confidence intervals and model predictions may not be reliable. You could try to simplify the statistical model.", align="left")
 }
 #===================================================================================================================
 # Testing the continuous factor
@@ -640,29 +654,35 @@ if (plotOfModelPredicted == "Y") {
 if (oddsRatio == "Y") {
 	HTML.title("Odds ratio", HR=2, align="left")
 
-	#Call is different to above as order may need reversing depening on positive result
-	threewayfull1<-glm(model1, data=statdata, family = binomial(link="logit"), na.action = na.omit)
+	if (nocontfactors == 0) {
+		note<- c("Note: Odds ratios are only available for continuous factors. As none are included in the model, no odds ratios have been generated.")
+		HTML(note, align="left")	
+	}
 
-	names <- rownames(data.frame(coef(threewayfull1)))
-	names<-names[-1]
-	oddsR<- data.frame(exp(cbind(OR = coef(threewayfull1), confint(threewayfull1, level=(sig)))))
-	oddsR <- oddsR[-1,]
-	oddsR[1]<-format(round(oddsR[1], 2), nsmall=2, scientific=FALSE)
-	oddsR[2]<-format(round(oddsR[2], 2), nsmall=2, scientific=FALSE)
-	oddsR[3]<-format(round(oddsR[3], 2), nsmall=2, scientific=FALSE)
+	if (nocontfactors > 0) {
+		#Call is different to above as order may need reversing depening on positive result
+		threewayfull1<-glm(model1, data=statdata, family = binomial(link="logit"), na.action = na.omit)
 
-	oddsR<-cbind(names, oddsR)
-	colnames(oddsR) <- c("Parameter", "Odds ratio", paste("Lower ",(sig*100),"% CI",sep=""), paste("Upper ",(sig*100),"% CI",sep=""))
-	HTML(oddsR, classfirstline="second", align="left", row.names = "FALSE")
+		names <- rownames(data.frame(coef(threewayfull1)))
+		names <- subset(names, names %in% ContinuousList)
+		oddsR<- data.frame(exp(cbind(OR = coef(threewayfull1), confint(threewayfull1, level=(sig)))))
+		oddsR <- subset(oddsR, rownames(oddsR) %in% ContinuousList)
+		oddsR[1]<-format(round(oddsR[1], 2), nsmall=2, scientific=FALSE)
+		oddsR[2]<-format(round(oddsR[2], 2), nsmall=2, scientific=FALSE)
+		oddsR[3]<-format(round(oddsR[3], 2), nsmall=2, scientific=FALSE)
+	
+		oddsR<-cbind(names, oddsR)
+		colnames(oddsR) <- c("Parameter", "Odds ratio", paste("Lower ",(sig*100),"% CI",sep=""), paste("Upper ",(sig*100),"% CI",sep=""))
+		HTML(oddsR, classfirstline="second", align="left", row.names = "FALSE")
 
-	note<- c("Note: Confidence intervals are based on the profiled log-likelihood function.")
-	HTML(note, align="left")
+		note<- c("Note: Confidence intervals are based on the profiled log-likelihood function.")
+		HTML(note, align="left")
  
-	note2<- c("To interpret these results: For a one-unit increase in the parameter, the odds ratio (given as a fold-change) 
-	indicates the corresponding increase/decrease in the probability that the response gives a 'positive result'." )
-	HTML(note2, align="left")
+		note2<- c("To interpret these results: For a one-unit increase in the parameter, the odds ratio (given as a fold-change) 
+		indicates the corresponding increase/decrease in the probability that the response gives a 'positive result'." )
+		HTML(note2, align="left")	
+	}
 }
-
 #===================================================================================================================
 #Generating confusion matrix
 #===================================================================================================================
@@ -799,7 +819,7 @@ if (goodnessOfFitTest  == "Y" ) {
 	objectNull <- update(threewayfull, ~ 1, data=model.frame(threewayfull))
 	llhNull <- logLik(objectNull)
 	McFadden <- 1 - llh/llhNull
-	tester<-print(McFadden)
+#	tester<-print(McFadden)
 	tester1<-format(c(McFadden), digits = 4)
 	tester2<-attr(McFadden,"df")
 	tableMF<- data.frame("Test result", tester1, tester2)
@@ -822,9 +842,8 @@ if (rocCurve == "Y") {
 	pf = data.frame(FPR=perf@x.values[[1]],TPR=perf@y.values[[1]])
 
 	#Area Under the Curve
-	auc = round(as.numeric(performance (pr, "auc")@y.values),2)
-	result = paste("AUC = ", round(auc,2))
-print(result)
+	auc = round(as.numeric(performance (pr, "auc")@y.values),4)
+	result = paste("AUC = ", round(auc,4))
 
 	#ROC plot
 	ROCPlot <- sub(".html", "ROCPlot.png", htmlFile)
@@ -906,7 +925,7 @@ if (noblockfactors==1 && blocklist != "NULL")  {
 	add<-paste(add, blocklist, " as a blocking factor", sep="")
 } else {
 	if(noblockfactors>1)  {
-		if (covariatelist == "NULL") {
+		if (nocovars == 0) {
 			add<-paste(add, " and ", sep="")
 		}
 		for (i in 1:noblockfactors) {
@@ -960,39 +979,35 @@ HTML(add, align="left")
 Ref_list<-R_refs()
 
 #Bate and Clark comment
-HTML(refxx, align="left")	
+#HTML(refxx, align="left")	
 
-if (UpdateIVS == "N") {
-	HTML.title("Statistical references", HR=2, align="left")
-}
-if (UpdateIVS == "Y") {
-	HTML.title("References", HR=2, align="left")
-	HTML(Ref_list$IVS_ref, align="left")
-}
-HTML(Ref_list$BateClark_ref, align="left")
+HTML.title("References", HR=2, align="left")
+HTML(Ref_list$IVS_ref, align="left")
+#HTML(Ref_list$BateClark_ref, align="left")
 
+if (separation == "Y"){
+	HTML("Mansournia, M.A., Geroldinger, A., Greenland, S. and Heinze, G. (2018) Separation in Logistic Regression: Causes, Consequences, and Control. American Journal of Epidemiology, 187(4), 864–870. https://doi.org/10.1093/aje/kwx299", allign = "left")
+}
 if(goodnessOfFitTest  == "Y") {
 	HTML("McFadden, D. (1974) Conditional Logit Analysis of Qualitative Choice Behavior. In: Zarembka, P., Ed., Frontiers in Econometrics, Academic Press, 105-142.", align="left")
 }
 
-if (UpdateIVS == "N") {
-	HTML.title("R references", HR=2, align="left")
-}
-if (UpdateIVS == "Y") {
-	HTML.title("R references", HR=4, align="left")
-}
+HTML.title("R references", HR=4, align="left")
 HTML(Ref_list$R_ref ,  align="left")
-HTML(Ref_list$GGally_ref,  align="left")
-HTML(Ref_list$RColorBrewers_ref,  align="left")
-HTML(Ref_list$GGPLot2_ref,  align="left")
-HTML(Ref_list$ggrepel_ref,  align="left")
-HTML(Ref_list$reshape_ref,  align="left")
-HTML(Ref_list$plyr_ref,  align="left")
-HTML(Ref_list$scales_ref,  align="left")
-HTML(Ref_list$car_ref,  align="left")
-HTML(Ref_list$R2HTML_ref,  align="left")
-HTML(Ref_list$PROTO_ref,  align="left")
-HTML(Ref_list$ROCRref,  align="left")
+
+HTML(paste(capture.output(print(citation("R2HTML"),bibtex=F))[4], capture.output(print(citation("R2HTML"),bibtex=F))[5], sep = ""),  align="left")
+HTML(paste(capture.output(print(citation("GGally"),bibtex=F))[4], capture.output(print(citation("GGally"),bibtex=F))[5], capture.output(print(citation("GGally"),bibtex=F))[6], capture.output(print(citation("GGally"),bibtex=F))[7], sep = ""),  align="left")
+HTML(paste(capture.output(print(citation("RColorBrewer"),bibtex=F))[4], capture.output(print(citation("RColorBrewer"),bibtex=F))[5], sep = ""),  align="left")
+HTML(paste(capture.output(print(citation("ggplot2"),bibtex=F))[4], capture.output(print(citation("ggplot2"),bibtex=F))[5], sep=""),  align="left")
+HTML(paste(capture.output(print(citation("ggrepel"),bibtex=F))[4], capture.output(print(citation("ggrepel"),bibtex=F))[5], capture.output(print(citation("ggrepel"),bibtex=F))[6], sep = ""),  align="left")
+HTML(paste(capture.output(print(citation("reshape"),bibtex=F))[4], capture.output(print(citation("reshape"),bibtex=F))[5], sep = ""),  align="left")
+HTML(paste(capture.output(print(citation("plyr"),bibtex=F))[4], capture.output(print(citation("plyr"),bibtex=F))[5], capture.output(print(citation("plyr"),bibtex=F))[6], sep = ""),  align="left")
+HTML(paste(capture.output(print(citation("scales"),bibtex=F))[4], capture.output(print(citation("scales"),bibtex=F))[5], capture.output(print(citation("scales"),bibtex=F))[6], sep = ""),  align="left")
+HTML(paste(capture.output(print(citation("proto"),bibtex=F))[4], capture.output(print(citation("proto"),bibtex=F))[5], capture.output(print(citation("proto"),bibtex=F))[6], sep = ""),  align="left")
+
+HTML(paste(capture.output(print(citation("car"),bibtex=F))[4], capture.output(print(citation("car"),bibtex=F))[5], capture.output(print(citation("car"),bibtex=F))[6], sep = ""),  align="left")
+HTML(paste(capture.output(print(citation("ROCR"),bibtex=F))[4], capture.output(print(citation("ROCR"),bibtex=F))[5], capture.output(print(citation("ROCR"),bibtex=F))[6], sep = ""),  align="left")
+HTML(paste(capture.output(print(citation("detectseparation"),bibtex=F))[4], capture.output(print(citation("detectseparation"),bibtex=F))[5], capture.output(print(citation("detectseparation"),bibtex=F))[6], capture.output(print(citation("detectseparation"),bibtex=F))[7], sep = ""),  align="left")
 
 #===================================================================================================================
 #Show dataset
